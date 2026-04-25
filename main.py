@@ -1,20 +1,33 @@
 import os
 import requests
 import telebot
+from flask import Flask
+from threading import Thread
 from dotenv import load_dotenv
 
-# Environment variables load karein (.env file ya Render dashboard se)
+# Environment variables load karein
 load_dotenv()
 
 # --- CONFIGURATION ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = os.getenv("OWNER_ID")
-API_KEY = os.getenv("API_KEY") # Render dashboard mein 'TVB_FULL_52F4672E' dalein
-
+API_KEY = os.getenv("API_KEY") 
 CHANNEL_ID = "@Lulzsec_empire"
 BASE_URL = "https://techvishalboss.com/api/v1/lookup.php"
 
+# Bot initialization
 bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask('')
+
+# --- WEB SERVER FOR RENDER (Keep-Alive & Port Binding) ---
+@app.route('/')
+def home():
+    return "Bot is Alive and Running!"
+
+def run_flask():
+    # Render automatically PORT environment variable provide karta hai
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
 
 # --- HELPER FUNCTIONS ---
 
@@ -48,7 +61,7 @@ def clean_response(data):
 def handle_start(message):
     user = message.from_user
 
-    # Owner ko notification bhejna (Jab bhi koi bot start kare)
+    # Owner ko notification bhejna
     log_text = (f"🚀 **New User Alert!**\n\n"
                 f"👤 Name: {user.first_name}\n"
                 f"🆔 ID: `{user.id}`\n"
@@ -60,7 +73,7 @@ def handle_start(message):
         except:
             pass
 
-    bot.reply_to(message, "✅ Bot is active!\n\nUse me in my official group for OSINT lookups.\nCommands: `/no`, `/vec`, `/tg`", parse_mode="Markdown")
+    bot.reply_to(message, "✅ **Bot is active!**\n\nUse me in my official group for OSINT lookups.\nCommands: `/no`, `/vec`, `/tg`", parse_mode="Markdown")
 
 @bot.message_handler(commands=['no', 'vec', 'tg'])
 def handle_osint(message):
@@ -114,6 +127,18 @@ def handle_osint(message):
     except Exception as e:
         bot.edit_message_text(f"❌ Error occurred: {str(e)}", chat_id, wait_msg.message_id)
 
-# Bot ko start karna
-print("Bot running successfully...")
-bot.infinity_polling()
+# --- EXECUTION ---
+if __name__ == "__main__":
+    # Flask ko background thread mein chalayein Render ke liye
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+    
+    print("Web Server started on Port 8080. Bot Polling starting...")
+    
+    # skip_pending=True purane messages ko ignore karta hai (Conflict fix)
+    # non_stop=True bot ko band nahi hone deta
+    try:
+        bot.infinity_polling(non_stop=True, skip_pending=True)
+    except Exception as e:
+        print(f"Polling Error: {e}")
