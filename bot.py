@@ -1,89 +1,119 @@
 import os
-import telebot
 import requests
-from telebot import types
+import telebot
+from dotenv import load_dotenv
 
-# --- LOAD ENVIRONMENT VARIABLES ---
-# In Render, you must add these keys in the "Environment" tab
-TOKEN = os.getenv('BOT_TOKEN')
-# The full API base including the prefix before the number
-API_BASE_URL = os.getenv('API_BASE_URL') # https://say-wallahai-bro-say-wallahi.onrender.com/raavan/v34/query=
-# The API key part
-API_KEY_PART = os.getenv('API_KEY')      # /key=RATELIMITE-BEIBBkim7bjTAkJIZTIUGPR4FkfNAYoj
-# Channel Numeric ID (Starts with -100)
-CHANNEL_ID = os.getenv('CHANNEL_ID') 
-CHANNEL_LINK = "https://t.me/+K1rF0W7od_wyNjVl"
+# Environment variables load karein (.env file ya Render dashboard se)
+load_dotenv()
 
-bot = telebot.TeleBot(TOKEN)
+# --- CONFIGURATION ---
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+OWNER_ID = os.getenv("OWNER_ID")
+API_KEY = os.getenv("API_KEY") # Render dashboard mein 'TVB_FULL_52F4672E' dalein
 
-# Simple dictionary to store basic user history if needed
-user_sessions = {}
+CHANNEL_ID = "@Lulzsec_empire"
+BASE_URL = "https://techvishalboss.com/api/v1/lookup.php"
 
-def check_join(user_id):
-    """Verifies if the user is a member of the required channel."""
+bot = telebot.TeleBot(BOT_TOKEN)
+
+# --- HELPER FUNCTIONS ---
+
+def is_joined(user_id):
+    """Checks if user is a member of the required channel"""
     try:
         member = bot.get_chat_member(CHANNEL_ID, user_id)
-        if member.status in ['member', 'administrator', 'creator']:
-            return True
+        return member.status in ['member', 'administrator', 'creator']
+    except:
         return False
-    except Exception as e:
-        print(f"Error checking channel join: {e}")
-        # If bot is not admin in channel, this check might fail
-        return False
+
+def clean_response(data):
+    """Removes branding and owner info from the JSON response"""
+    if isinstance(data, dict):
+        # In keys ko output mein nahi dikhaya jayega
+        blocked_keys = ['branding', 'owner', 'credit', 'developer', 'status', 'success', 'key_status']
+        
+        info_parts = []
+        for key, value in data.items():
+            if key.lower() not in blocked_keys and value:
+                # Key name ko sundar banane ke liye (e.g. 'full_name' -> 'Full Name')
+                clean_key = key.replace('_', ' ').title()
+                info_parts.append(f"🔹 **{clean_key}**: `{value}`")
+        
+        return "\n".join(info_parts) if info_parts else "⚠️ No valid information found."
+    return str(data)
+
+# --- BOT HANDLERS ---
 
 @bot.message_handler(commands=['start'])
-def start_cmd(message):
-    # RULE: Only work in groups
-    if message.chat.type == 'private':
-        bot.reply_to(message, "❌ **Access Denied!**\nThis bot only works inside Groups. Add me to a group and make me admin to start searching.")
-        return
+def handle_start(message):
+    user = message.from_user
     
-    user_sessions[message.from_user.id] = "started"
-    bot.reply_to(message, "✅ **Lulzsec OSINT Bot Active**\n\nSend `/num <10-digit-number>` to begin.\nExample: `/num 9876543210`")
+    # Owner ko notification bhejna (Jab bhi koi bot start kare)
+    log_text = (f"🚀 **New User Alert!**\n\n"
+                f"👤 Name: {user.first_name}\n"
+                f"🆔 ID: `{user.id}`\n"
+                f"🔗 Username: @{user.username if user.username else 'None'}")
+    
+    if OWNER_ID:
+        try:
+            bot.send_message(OWNER_ID, log_text, parse_mode="Markdown")
+        except:
+            pass
+            
+    bot.reply_to(message, "✅ Bot is active!\n\nUse me in my official group for OSINT lookups.\nCommands: `/no`, `/vec`, `/tg`", parse_mode="Markdown")
 
-@bot.message_handler(commands=['num'])
-def handle_search(message):
-    # 1. Group Check
-    if message.chat.type == 'private':
-        bot.reply_to(message, "❌ Please use this bot in a Group.")
+@bot.message_handler(commands=['no', 'vec', 'tg'])
+def handle_osint(message):
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    cmd = message.text.split()[0].lower()
+
+    # 1. Force Join Check
+    if not is_joined(user_id):
+        bot.reply_to(message, f"❌ Aapne channel join nahi kiya hai.\n\nPehle join karein: {CHANNEL_ID}")
         return
 
-    # 2. Force Join Check
-    if not check_join(message.from_user.id):
-        markup = types.InlineKeyboardMarkup()
-        btn = types.InlineKeyboardButton("Join Channel 📢", url=CHANNEL_LINK)
-        markup.add(btn)
-        bot.reply_to(message, "🚫 **Join Required!**\n\nYou must be a member of our channel to use this search bot.", reply_markup=markup)
+    # 2. Group Only Check
+    if message.chat.type not in ['group', 'supergroup']:
+        bot.reply_to(message, "❌ Ye bot security ki wajah se sirf Groups mein kaam karta hai.")
         return
 
     # 3. Input Validation
-    text_parts = message.text.split()
-    if len(text_parts) < 2:
-        bot.reply_to(message, "❗ **Usage:** `/num 9723700508` (10 digits without +91)")
+    args = message.text.split()
+    if len(args) < 2:
+        bot.reply_to(message, f"Usage: `{cmd} [input]`\nExample: `{cmd} 91XXXXXXXXXX`", parse_mode="Markdown")
         return
+    
+    query_val = args[1]
+    wait_msg = bot.reply_to(message, "🔎 Database se info fetch kar raha hoon... wait.")
 
-    raw_input = text_parts[1]
-    # Extract last 10 digits to ensure no +91 interference
-    clean_number = "".join(filter(str.isdigit, raw_input))[-10:]
+    # 4. API Request Setup
+    params = {"key": API_KEY}
+    
+    if cmd == "/no":
+        params.update({"service": "number", "number": query_val})
+    elif cmd == "/tg":
+        params.update({"service": "tg_to_number", "telegram": query_val})
+    elif cmd == "/vec":
+        params.update({"service": "vehicle_owner_number", "rc": query_val})
 
-    if len(clean_number) != 10:
-        bot.reply_to(message, "❌ Invalid format. Provide a 10-digit Indian number.")
-        return
-
-    # 4. API Request
+    # 5. Fetching & Cleaning Data
     try:
-        bot.send_chat_action(message.chat.id, 'typing')
-        
-        # Construct URL using environment variables
-        # Format: BaseURL + 91 + Number + KeyPart
-        api_url = f"{API_BASE_URL}91{clean_number}{API_KEY_PART}"
-        
-        response = requests.get(api_url, timeout=20)
+        response = requests.get(BASE_URL, params=params)
         
         if response.status_code == 200:
-            # We assume response is text or JSON. If text, we wrap in code block.
-            api_data = response.text
+            json_data = response.json()
+            # Clean results (remove branding)
+            final_info = clean_response(json_data)
             
-            # Format Result
-            response_msg = f"🔍 **Search Result for {clean_number}:**\n\n"
-            response_msg += f"
+            output_msg = f"🔍 **OSINT Result for {query_val}:**\n\n{final_info}"
+            bot.edit_message_text(output_msg, chat_id, wait_msg.message_id, parse_mode="Markdown")
+        else:
+            bot.edit_message_text("⚠️ API Error: Server response nahi de raha.", chat_id, wait_msg.message_id)
+            
+    except Exception as e:
+        bot.edit_message_text(f"❌ Error occurred: {str(e)}", chat_id, wait_msg.message_id)
+
+# Bot ko start karna
+print("Bot running successfully...")
+bot.infinity_polling()
