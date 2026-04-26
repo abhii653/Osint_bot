@@ -122,7 +122,8 @@ def handle_osint(message):
             output_msg = f"🔍 **OSINT Result for {query_val}:**\n\n{final_info}"
             bot.edit_message_text(output_msg, chat_id, wait_msg.message_id, parse_mode="Markdown")
         else:
-            bot.edit_message_text("⚠️ API Error: Server response nahi de raha.", chat_id, wait_msg.message_id)
+            bot.edit_message_text("❌ NO DATA FOUND
+⟡ All APIs responded but no valid information ⟡.", chat_id, wait_msg.message_id)
 
     except Exception as e:
         bot.edit_message_text(f"❌ Error occurred: {str(e)}", chat_id, wait_msg.message_id)
