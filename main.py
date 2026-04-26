@@ -155,5 +155,10 @@ def main_handler(message):
         bot.edit_message_text(f"❌ Error: Server issue or invalid input.", message.chat.id, wait.message_id)
 
 if __name__ == "__main__":
+    # Flask thread start karein
     Thread(target=run_flask, daemon=True).start()
+    
+    print("Bot is starting...")
+    
+    # skip_pending=True purane updates ko clear kar deta hai
     bot.infinity_polling(skip_pending=True)
