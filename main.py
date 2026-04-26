@@ -6,9 +6,11 @@ from flask import Flask
 from threading import Thread
 from dotenv import load_dotenv
 
+# Environment variables load karein
 load_dotenv()
 
 # --- CONFIGURATION ---
+# Render ke Environment Variables mein ye sab set karein
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = os.getenv("OWNER_ID") 
 API_KEY = os.getenv("API_KEY") 
@@ -24,7 +26,7 @@ def home(): return "Bot is Online and Stable!"
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
-# --- UTILS ---
+# --- UTILS (Cleaning & Greetings) ---
 
 def get_greeting():
     hour = datetime.datetime.now().hour
@@ -39,70 +41,79 @@ def is_joined(user_id):
         return member.status in ['member', 'administrator', 'creator']
     except: return False
 
-def clean_and_format(data, title):
-    """Markdown parsing errors se bachne ke liye text ko saaf karta hai"""
-    if not data or not data.get("success"):
-        return "❌ **No details found for this input.**"
+def clean_text(text):
+    """Markdown crash rokne ke liye characters clean karta hai"""
+    if not text: return "N/A"
+    return str(text).replace('_', ' ').replace('*', '').replace('`', '')
 
+def format_output(data, title):
+    """Results ko Name, Father Name, Address format mein dikhane ke liye"""
+    if not data or not data.get("success"):
+        return "❌ **No details found in database.**"
+
+    # Inko sequence mein dikhayenge
     priority = ['name', 'father_name', 'address', 'mobile', 'owner_name', 'number', 'rc_no']
     blocked = ['branding', 'owner', 'credit', 'status', 'success', 'key_status']
 
-    res = f"📑 **{title.upper()}**\n"
-    res += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg = f"📑 **{title.upper()}**\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
 
-    # Pehle priority wali info (Saaf format mein)
+    # Pehle main info
     for key in priority:
         if key in data and data[key]:
-            val = str(data[key]).replace('_', ' ').replace('*', '') # Character Clean
-            res += f"👤 **{key.replace('_',' ').title()}**: `{val}`\n"
+            val = clean_text(data[key])
+            msg += f"👤 **{key.replace('_',' ').title()}**: `{val}`\n"
 
-    # Baaki info
+    # Phir baaki bachi details
     for k, v in data.items():
         if k not in priority and k not in blocked and v:
-            val = str(v).replace('_', ' ').replace('*', '')
-            res += f"🔹 **{k.replace('_',' ').title()}**: `{val}`\n"
+            val = clean_text(v)
+            msg += f"🔹 **{k.replace('_',' ').title()}**: `{val}`\n"
 
-    res += "━━━━━━━━━━━━━━━━━━━━\n"
-    res += "✅ **Data Fetched Successfully**"
-    return res
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "✅ **Data Fetched Successfully**"
+    return msg
 
-# --- HANDLERS ---
+# --- COMMAND HANDLERS ---
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     user = message.from_user
     greet = get_greeting()
 
-    # Admin Logging
-    log = (f"👤 **New User Notification**\n"
+    # Admin Alert
+    log = (f"👤 **New User Alert**\n"
            f"Name: {user.first_name}\n"
            f"ID: `{user.id}`\n"
-           f"User: @{user.username if user.username else 'N/A'}")
+           f"User: @{user.username if user.username else 'None'}")
     if OWNER_ID:
         try: bot.send_message(OWNER_ID, log, parse_mode="Markdown")
         except: pass
 
     welcome_text = (f"✨ {greet}, **{user.first_name}**!\n\n"
                     f"Sir, ensure that you joined the **{CHANNEL_ID}** to continue.\n\n"
-                    f"⚠️ *Note:* This bot only works in **Groups** for security.\n\n"
+                    f"⚠️ *Note:* For security reasons, this bot only works in groups.\n\n"
                     f"**Commands:**\n"
                     f"🔹 `/no [number]` - Phone Lookup\n"
-                    f"🔹 `/tg [id/user]` - TG Lookup\n"
+                    f"🔹 `/tg [id/user]` - Telegram Lookup\n"
                     f"🔹 `/vec [RC]` - Vehicle Details\n"
-                    f"🔹 `/id` - Get your/other's ID")
-    bot.reply_to(message, welcome_text, parse_mode="Markdown")
+                    f"🔹 `/id` - Get ID (Reply/Self)")
+
+    try:
+        # DP ke saath welcome
+        photos = bot.get_user_profile_photos(user.id)
+        if photos.total_count > 0:
+            bot.send_photo(message.chat.id, photos.photos[0][-1].file_id, caption=welcome_text, parse_mode="Markdown")
+        else:
+            bot.reply_to(message, welcome_text, parse_mode="Markdown")
+    except:
+        bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['id'])
-def get_id(message):
-    # Case 1: Reply karke /id bolna
+def handle_id(message):
     if message.reply_to_message:
         target = message.reply_to_message.from_user
         bot.reply_to(message, f"👤 **User:** {target.first_name}\n🆔 **ID:** `{target.id}`", parse_mode="Markdown")
-    # Case 2: Mention karke /id @user (Sirf tab kaam karega agar bot ne use pehle dekha ho)
-    elif len(message.text.split()) > 1:
-        # Note: Username se ID nikalne ke liye bot ka database ya full access chahiye hota hai
-        bot.reply_to(message, "ℹ️ Use `/id` by replying to a user's message.")
-    # Case 3: Khud ki ID
     else:
         bot.reply_to(message, f"🆔 Your ID: `{message.from_user.id}`", parse_mode="Markdown")
 
@@ -110,47 +121,52 @@ def get_id(message):
 def main_handler(message):
     user_id = message.from_user.id
 
-    # 1. Force Join
+    # 1. Force Join Check
     if not is_joined(user_id):
-        bot.reply_to(message, f"❌ **Join Required**\n\nSir, please join {CHANNEL_ID} first!")
+        bot.reply_to(message, f"❌ **Access Denied!**\n\nSir, please join {CHANNEL_ID} to use me.")
         return
 
     # 2. Group Check
     if message.chat.type not in ['group', 'supergroup']:
-        bot.reply_to(message, "❌ **Security Alert**\n\nSir, results are only shown in groups.")
+        bot.reply_to(message, "❌ **Security Alert!**\n\nSir, this bot only works in Groups.")
         return
 
     args = message.text.split()
     if len(args) < 2:
-        bot.reply_to(message, "❗ **Input Missing!**\nUsage: `/[cmd] [value]`")
+        bot.reply_to(message, "❗ **Input missing!**\nExample: `/no 91888...` or `/vec UP32...`", parse_mode="Markdown")
         return
 
     cmd, val = args[0].lower(), args[1]
-    wait = bot.reply_to(message, "⚡ **Scanning Databases...**")
+    wait = bot.reply_to(message, "⚡ **Searching Databases...**")
 
     try:
         if cmd == "/no":
             data = requests.get(BASE_URL, params={"key": API_KEY, "service": "number", "number": val}, timeout=15).json()
-            msg = clean_and_format(data, "Number Identity")
+            msg = format_output(data, "Number Details")
 
         elif cmd == "/tg":
             data = requests.get(BASE_URL, params={"key": API_KEY, "service": "tg_to_number", "telegram": val}, timeout=15).json()
-            msg = clean_and_format(data, "Telegram Data")
-            
+            msg = format_output(data, "Telegram Identity")
+
         elif cmd == "/vec":
+            # Vehicle Info + Owner Mobile Number (Double API)
             v_info = requests.get(BASE_URL, params={"key": API_KEY, "service": "vehicle", "rc": val}, timeout=15).json()
             v_owner = requests.get(BASE_URL, params={"key": API_KEY, "service": "vehicle_owner_number", "rc": val}, timeout=15).json()
+            
             if v_info.get("success"):
-                v_info.update(v_owner) 
-                msg = clean_and_format(v_info, "Vehicle Ownership")
+                v_info.update(v_owner) # Merging owner data into info
+                msg = format_output(v_info, "Vehicle & Owner Details")
             else:
                 msg = "❌ Vehicle not found."
 
         bot.edit_message_text(msg, message.chat.id, wait.message_id, parse_mode="Markdown")
 
     except Exception:
-        bot.edit_message_text("❌ **API Timeout or Invalid Input.**", message.chat.id, wait.message_id)
+        bot.edit_message_text("❌ **Server Error or Invalid Request.**", message.chat.id, wait.message_id)
+
+# --- EXECUTION ---
 
 if __name__ == "__main__":
     Thread(target=run_flask, daemon=True).start()
+    print("Bot is starting...")
     bot.infinity_polling(skip_pending=True)
