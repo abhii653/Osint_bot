@@ -139,6 +139,7 @@ if __name__ == "__main__":
     # skip_pending=True purane messages ko ignore karta hai (Conflict fix)
     # non_stop=True bot ko band nahi hone deta
     try:
-        bot.infinity_polling(non_stop=True, skip_pending=True)
+        bot.infinity_polling(skip_pending=True)
+
     except Exception as e:
         print(f"Polling Error: {e}")
