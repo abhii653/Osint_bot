@@ -179,12 +179,17 @@ def main_handler(message):
         bot.edit_message_text("❌ Error processing request or Connection Timeout.", message.chat.id, wait.message_id)
 
 if __name__ == "__main__":
-    # Start Flask thread for Render health checks
-    Thread(target=run_flask, daemon=True).start()
-    print("Bot is Starting...")
-    
-    # Start Bot Polling
     try:
-        bot.infinity_polling(skip_pending=True)
+        # Start Flask thread
+        print("Starting Flask server...")
+        Thread(target=run_flask, daemon=True).start()
+        
+        # Start Bot
+        print("Bot is attempting to poll...")
+        if not BOT_TOKEN:
+            print("CRITICAL ERROR: BOT_TOKEN is missing!")
+        else:
+            bot.infinity_polling(skip_pending=True)
+            
     except Exception as e:
-        print(f"Bot Polling Error: {e}")
+        print(f"CRITICAL CRASH: {e}")
